@@ -13,6 +13,14 @@ import type {
   TikTokBridgeStatus,
   WeddingGameState,
 } from './game/types';
+import {
+  bindMinhaLiveGamesSdk,
+  emitSdkScore,
+  normalizeSdkCommand,
+  normalizeSdkControl,
+  normalizeSdkEvent,
+  type SdkControlAction,
+} from './sdk/minhaLiveGames';
 import { type BallroomController, mountBallroomScene } from './three/ballroomScene';
 
 export default function App() {
@@ -21,6 +29,13 @@ export default function App() {
   const gameStateRef = useRef<WeddingGameState>(createInitialGameState(68));
   const ballroomRef = useRef<BallroomController | null>(null);
   const keysPressedRef = useRef<Set<string>>(new Set());
+  const pausedRef = useRef(false);
+  const prevPhaseRef = useRef(gameStateRef.current.phase);
+  const prevBrideIdRef = useRef(gameStateRef.current.brideId);
+  const lastEmittedScoreRef = useRef(-1);
+  const lastScoreEmitAtRef = useRef(0);
+
+  const [isPaused, setIsPaused] = useState(false);
 
   const [hudSnap, setHudSnap] = useState(() => ({
     round: gameStateRef.current.round,
@@ -50,6 +65,20 @@ export default function App() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  const maybeEmitScore = (force = false) => {
+    const state = gameStateRef.current;
+    const rounded = Math.max(0, Math.round(state.totalScore));
+    const now = performance.now();
+    if (
+      force ||
+      (rounded !== lastEmittedScoreRef.current && now - lastScoreEmitAtRef.current >= 500)
+    ) {
+      lastEmittedScoreRef.current = rounded;
+      lastScoreEmitAtRef.current = now;
+      emitSdkScore(state);
+    }
+  };
+
   // Helper to sync discrete HUD snapshot (never called at 60Hz)
   const syncHudSnapshot = () => {
     const s = gameStateRef.current;
@@ -75,6 +104,63 @@ export default function App() {
     });
   };
 
+  // Helper to apply incoming real-time events from SDK, WebSocket, or postMessage
+  const dispatchLiveEvent = (evt: LiveEventInput) => {
+    applyLiveEventToState(gameStateRef.current, evt);
+    ballroomRef.current?.syncFromState(gameStateRef.current);
+    ballroomRef.current?.triggerConfettiBurst(0, 1.8, 0.2, 22);
+    if (evt.type === 'crown_bride' || (evt.type === 'gift' && (evt.giftValue ?? 0) >= 20)) {
+      weddingAudio.playCoronationChime();
+    } else {
+      weddingAudio.playPop(1.05);
+    }
+    setBridgeStatus((prev) => ({
+      ...prev,
+      totalEventsReceived: prev.totalEventsReceived + 1,
+      lastEventAt: Date.now(),
+    }));
+    maybeEmitScore(true);
+    syncHudSnapshot();
+  };
+
+  // Helper to handle SDK lifecycle controls (start, pause, restart)
+  const handleSdkControl = (action: SdkControlAction) => {
+    if (action === 'pause') {
+      pausedRef.current = true;
+      setIsPaused(true);
+      document.body.dataset.state = 'paused';
+      return;
+    }
+
+    if (action === 'start') {
+      pausedRef.current = false;
+      setIsPaused(false);
+      document.body.dataset.state = 'playing';
+      return;
+    }
+
+    if (action === 'restart') {
+      pausedRef.current = false;
+      setIsPaused(false);
+      document.body.dataset.state = 'playing';
+      const fresh = createInitialGameState(68);
+      gameStateRef.current = fresh;
+      prevPhaseRef.current = fresh.phase;
+      prevBrideIdRef.current = fresh.brideId;
+      ballroomRef.current?.syncFromState(fresh);
+      ballroomRef.current?.triggerConfettiBurst(0, 2.0, 0.2, 22);
+      maybeEmitScore(true);
+      syncHudSnapshot();
+    }
+  };
+
+  const dispatchLiveEventRef = useRef(dispatchLiveEvent);
+  dispatchLiveEventRef.current = dispatchLiveEvent;
+  const handleSdkControlRef = useRef(handleSdkControl);
+  handleSdkControlRef.current = handleSdkControl;
+  const maybeEmitScoreRef = useRef(maybeEmitScore);
+  maybeEmitScoreRef.current = maybeEmitScore;
+
   // Mount Three.js Ballroom once
   useEffect(() => {
     document.body.dataset.state = 'playing';
@@ -84,14 +170,16 @@ export default function App() {
     if (!mountEl || !overlayEl) return;
 
     let hudSyncAccum = 0;
-    let prevPhase = gameStateRef.current.phase;
-    let prevBrideId = gameStateRef.current.brideId;
 
     const controller = mountBallroomScene(
       mountEl,
       overlayEl,
       () => gameStateRef.current,
       (dt, elapsed) => {
+        if (pausedRef.current) {
+          return;
+        }
+
         const keys = keysPressedRef.current;
         const moveX =
           (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
@@ -113,33 +201,38 @@ export default function App() {
           for (const enc of encounters.slice(0, 2)) {
             ballroomRef.current?.triggerConfettiBurst(enc.midX, 1.0, enc.midZ, 8);
           }
+          maybeEmitScoreRef.current(false);
         }
 
-        if (state.phase !== prevPhase) {
-          prevPhase = state.phase;
+        if (state.phase !== prevPhaseRef.current) {
+          prevPhaseRef.current = state.phase;
           if (state.phase === 'cerimonia' || state.phase === 'celebracao') {
             weddingAudio.playWeddingFanfare();
             ballroomRef.current?.triggerConfettiBurst(0, 2.2, 0.2, 42);
           }
+          maybeEmitScoreRef.current(true);
           syncHudSnapshot();
         }
 
-        if (state.brideId !== prevBrideId) {
-          prevBrideId = state.brideId;
+        if (state.brideId !== prevBrideIdRef.current) {
+          prevBrideIdRef.current = state.brideId;
           weddingAudio.playCoronationChime();
           ballroomRef.current?.triggerConfettiBurst(0.9, 1.8, 0.1, 28);
+          maybeEmitScoreRef.current(true);
           syncHudSnapshot();
         }
 
         hudSyncAccum += dt;
         if (hudSyncAccum >= 0.25) {
           hudSyncAccum = 0;
+          maybeEmitScoreRef.current(false);
           syncHudSnapshot();
         }
       },
     );
 
     ballroomRef.current = controller;
+    maybeEmitScoreRef.current(true);
     syncHudSnapshot();
 
     return () => {
@@ -148,29 +241,26 @@ export default function App() {
     };
   }, []);
 
-  // Helper to apply incoming real-time events from WebSocket, postMessage, or MINHA LIVE GAMES bridge
-  const dispatchLiveEvent = (evt: LiveEventInput) => {
-    applyLiveEventToState(gameStateRef.current, evt);
-    ballroomRef.current?.syncFromState(gameStateRef.current);
-    ballroomRef.current?.triggerConfettiBurst(0, 1.8, 0.2, 22);
-    if (evt.type === 'crown_bride' || (evt.type === 'gift' && (evt.giftValue ?? 0) >= 20)) {
-      weddingAudio.playCoronationChime();
-    } else {
-      weddingAudio.playPop(1.05);
-    }
-    setBridgeStatus((prev) => ({
-      ...prev,
-      totalEventsReceived: prev.totalEventsReceived + 1,
-      lastEventAt: Date.now(),
-    }));
-    syncHudSnapshot();
-  };
-
-  // Connect WebSocket (when backend or ?ws= / VITE_LIVE_WS_URL is available) + MINHA LIVE GAMES postMessage / global API
+  // Connect Minha Live Games SDK + WebSocket (when backend or ?ws= / VITE_LIVE_WS_URL is available) + postMessage
   useEffect(() => {
     let active = true;
     let ws: WebSocket | null = null;
     let reconnectTimer = 0;
+
+    // Bind platform-injected window.MinhaLiveGames without overwriting it
+    const unbindSdk = bindMinhaLiveGamesSdk({
+      onEvent: (evt) => dispatchLiveEventRef.current(evt),
+      onControl: (action) => handleSdkControlRef.current(action),
+      onConnected: () => {
+        if (!active) return;
+        setBridgeStatus((prev) => ({
+          ...prev,
+          configured: true,
+          connected: true,
+          mode: 'connected',
+        }));
+      },
+    });
 
     const params = new URLSearchParams(window.location.search);
     const explicitWsUrl =
@@ -206,9 +296,11 @@ export default function App() {
           if (parsed?.type === 'bridge:status' && parsed.payload) {
             setBridgeStatus(parsed.payload);
           } else if (parsed?.type === 'live:event' && parsed.payload) {
-            dispatchLiveEvent(parsed.payload as LiveEventInput);
-          } else if (parsed?.type && parsed?.user) {
-            dispatchLiveEvent(parsed as LiveEventInput);
+            const normalized = normalizeSdkEvent(parsed.payload);
+            if (normalized) dispatchLiveEventRef.current(normalized);
+          } else {
+            const normalized = normalizeSdkEvent(parsed);
+            if (normalized) dispatchLiveEventRef.current(normalized);
           }
         } catch {
           // Ignore invalid JSON frames
@@ -222,10 +314,14 @@ export default function App() {
       };
     }
 
+    const hasBackendCookie =
+      typeof document !== 'undefined' && document.cookie.includes('cb3d_backend=1');
+    const backendRequested = params.get('backend') === '1' || hasBackendCookie;
+
     if (explicitWsUrl) {
       connectWs(explicitWsUrl);
-    } else if (window.location.protocol.startsWith('http')) {
-      // Only open local /ws/live if Express backend is actually running (avoids errors on static Vercel/CDN hosts)
+    } else if (window.location.protocol.startsWith('http') && backendRequested) {
+      // Only open local /ws/live when Express backend is active (avoids 404s on static HTML5 hosts)
       fetch('/api/live/status')
         .then(async (res) => {
           const ct = res.headers.get('content-type') || '';
@@ -239,7 +335,7 @@ export default function App() {
           connectWs(`${proto}://${window.location.host}/ws/live?role=viewer`);
         })
         .catch(() => {
-          // Static hosting mode (e.g. Vercel) — operates cleanly via postMessage / MinhaLiveGames bridge
+          // Static HTML5 / Minha Live Games hosting mode
         });
     }
 
@@ -247,39 +343,32 @@ export default function App() {
     const onWindowMessage = (event: MessageEvent) => {
       const data = event.data;
       if (!data || typeof data !== 'object') return;
-      if (
+      if (data.type === 'minha-live-games:control') {
+        const action = normalizeSdkControl(data.payload ?? data);
+        if (action) handleSdkControlRef.current(action);
+      } else if (data.type === 'minha-live-games:command') {
+        const cmdEvt = normalizeSdkCommand(data.payload ?? data);
+        if (cmdEvt) dispatchLiveEventRef.current(cmdEvt);
+      } else if (
         (data.type === 'minha-live-games:event' || data.type === 'live:event') &&
         data.payload
       ) {
-        dispatchLiveEvent({ ...(data.payload as LiveEventInput), source: 'websocket' });
+        const evt = normalizeSdkEvent(data.payload);
+        if (evt) dispatchLiveEventRef.current(evt);
       }
     };
     window.addEventListener('message', onWindowMessage);
 
-    // Expose direct JS bridge on window for MINHA LIVE GAMES container integration
-    (window as unknown as Record<string, unknown>).MinhaLiveGames = {
-      emitEvent: (payload: LiveEventInput) => {
-        dispatchLiveEvent({ ...payload, source: payload.source ?? 'websocket' });
-      },
-      getState: () => ({
-        round: gameStateRef.current.round,
-        phase: gameStateRef.current.phase,
-        ceremonyProgress: gameStateRef.current.ceremonyProgress,
-        participantsCount: gameStateRef.current.roaches.length,
-        bride: gameStateRef.current.roaches.find((r) => r.id === gameStateRef.current.brideId)?.handle,
-        groom: gameStateRef.current.roaches.find((r) => r.id === gameStateRef.current.groomId)?.handle,
-      }),
-    };
-
     return () => {
       active = false;
+      unbindSdk();
       clearTimeout(reconnectTimer);
       ws?.close();
       window.removeEventListener('message', onWindowMessage);
     };
   }, []);
 
-  // Keyboard controls (1-4 cameras, WASD/Arrows move, Space dance burst, M mute, L live panel, H dock)
+  // Keyboard controls (WASD/Arrows move, Space dance burst, M mute, L live panel)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (
@@ -291,7 +380,7 @@ export default function App() {
 
       keysPressedRef.current.add(e.code);
 
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && !pausedRef.current) {
         e.preventDefault();
         const controlled = gameStateRef.current.roaches.find(
           (r) => r.id === gameStateRef.current.controlledRoachId,
@@ -300,6 +389,7 @@ export default function App() {
           triggerRoachInteraction(gameStateRef.current, controlled.id);
           ballroomRef.current?.triggerConfettiBurst(controlled.x, 1.4, controlled.z, 20);
           weddingAudio.playPop(1.15);
+          maybeEmitScoreRef.current(true);
           syncHudSnapshot();
         }
       } else if (e.code === 'KeyM') {
@@ -331,7 +421,7 @@ export default function App() {
   }, []);
 
   function handleCanvasClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (drawerOpen) return;
+    if (drawerOpen || pausedRef.current) return;
     const hitId = ballroomRef.current?.pickRoachAtClientPos(e.clientX, e.clientY);
     if (hitId) {
       triggerRoachInteraction(gameStateRef.current, hitId);
@@ -340,23 +430,30 @@ export default function App() {
         ballroomRef.current?.triggerConfettiBurst(roach.x, 1.5, roach.z, 18);
       }
       weddingAudio.playPop(0.95 + Math.random() * 0.2);
+      maybeEmitScore(true);
       syncHudSnapshot();
     }
   }
 
   async function handleTriggerTestEvent(event: LiveEventInput) {
-    try {
-      const res = await fetch('/api/live/event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, source: 'player' }),
-      });
-      const ct = res.headers.get('content-type') || '';
-      if (res.ok && ct.includes('application/json')) {
-        return;
+    const hasBackend =
+      document.cookie.includes('cb3d_backend=1') ||
+      new URLSearchParams(window.location.search).get('backend') === '1';
+
+    if (hasBackend) {
+      try {
+        const res = await fetch('/api/live/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...event, source: 'player' }),
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (res.ok && ct.includes('application/json')) {
+          return;
+        }
+      } catch {
+        // Fallback to direct dispatch below
       }
-    } catch {
-      // Static hosting (Vercel / file) fallback below
     }
     dispatchLiveEvent({ ...event, source: 'player' });
   }
@@ -399,6 +496,18 @@ export default function App() {
           brideAnnouncement={hudSnap.brideAnnouncement}
           recentEvents={hudSnap.recentEvents}
         />
+
+        {/* Minimal pause indicator shown only when paused via SDK onControl */}
+        {isPaused && (
+          <div
+            data-testid="sdk-paused-overlay"
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/45 backdrop-blur-[2px]"
+          >
+            <div className="px-5 py-2.5 rounded-xl bg-[#2a0814]/90 border border-[#f5b82e]/70 text-[#fff6dc] font-display text-lg font-bold tracking-wider shadow-xl">
+              JOGO PAUSADO
+            </div>
+          </div>
+        )}
 
         {/* TikTok LIVE Integration & Test Drawer (toggle via L) */}
         <LiveBridgeDrawer

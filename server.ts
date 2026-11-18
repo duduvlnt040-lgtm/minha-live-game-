@@ -191,6 +191,14 @@ async function startServer() {
     res.json({ ok: true, event, timestamp: lastEventAt });
   });
 
+  // Signal presence of optional Node live-bridge backend without causing 404s on static hosts
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html')) {
+      res.cookie('cb3d_backend', '1', { sameSite: 'lax', path: '/' });
+    }
+    next();
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

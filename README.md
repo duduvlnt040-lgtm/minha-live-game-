@@ -26,6 +26,9 @@ Jogo 3D interativo em formato vertical **9:16** construído com **React + Three.
     │   ├── types.ts              # Tipos de entidades, eventos e estado
     │   ├── rules.ts              # Lógica de jogo, colisões, proximidade e câmera automática
     │   └── rules.test.ts         # Testes unitários (node:test)
+    ├── sdk/
+    │   ├── minhaLiveGames.ts     # Adaptador oficial do SDK window.MinhaLiveGames
+    │   └── minhaLiveGames.test.ts# Testes do adaptador SDK (onEvent, onCommand, onControl, emitScore)
     └── three/
         ├── textures.ts           # Texturas procedurais em Canvas2D
         ├── roachModel.ts         # Modelos 3D articulados das baratas, noivo e noiva
@@ -47,90 +50,45 @@ npm install
 # 2. Rodar em modo desenvolvimento completo (Vite + Express + WebSocket na porta 3000)
 npm run dev
 
-# 3. Ou gerar a versão compilada estática em dist/ e pré-visualizar
+# 3. Ou gerar a versão compilada estática HTML5 em dist/ e pré-visualizar
 npm run build
 npm run preview
 ```
 
 ### Testes e Verificação
 ```bash
-npx --yes tsx --test src/game/rules.test.ts
+npx --yes tsx --test src/game/rules.test.ts src/sdk/minhaLiveGames.test.ts
 npm run lint
 ```
 
 ---
 
-## 3. Como Publicar na Vercel
+## 3. Pacote ZIP para Importação na Minha Live Games
 
-O projeto já inclui `vercel.json` configurado para Vite (`npm run build` → `dist/`):
+O arquivo `casamento-da-barata-3d.zip` contém exclusivamente a versão estática HTML5 gerada em `dist/` com `index.html` na raiz:
 
-1. Exporte/submeta o repositório para o GitHub (ou use a CLI da Vercel na raiz do projeto).
-2. No painel da **Vercel**, clique em **Add New Project** e importe o repositório (ou execute `npx vercel --prod`).
-3. Configurações detectadas automaticamente:
-   - **Framework Preset:** `Vite`
-   - **Build Command:** `npm run build`
-   - **Output Directory:** `dist`
-4. (Opcional) Defina a variável de ambiente `VITE_LIVE_WS_URL` apontando para o servidor WebSocket da sua plataforma (ex.: `wss://live.minhalivegames.com/ws`).
+```text
+casamento-da-barata-3d.zip
+├── index.html
+└── assets/
+    ├── index-*.js
+    └── index-*.css
+```
+
+Sem dependências de desenvolvimento, caminhos locais ou arquivos de referência do ambiente de criação.
 
 ---
 
 ## 4. Integração com a Plataforma MINHA LIVE GAMES
 
-Todos os modelos 3D, texturas, animações e sons são gerados 100% em código (sem dependências de servidores ou caminhos locais). Você pode conectar eventos reais do TikTok LIVE ao jogo de **4 formas**:
+Todos os modelos 3D, texturas, animações e sons são gerados 100% em código (sem dependências externas). O jogo consome o SDK `window.MinhaLiveGames` fornecido pela plataforma **sem sobrescrevê-lo**:
 
-### Opção A — `iframe` + `window.postMessage` (Recomendado para MINHA LIVE GAMES)
-```js
-const iframe = document.getElementById('casamento-barata-iframe');
-iframe.contentWindow.postMessage(
-  {
-    type: 'minha-live-games:event',
-    payload: {
-      type: 'gift', // 'gift' | 'like' | 'comment' | 'follow' | 'share' | 'crown_bride' | 'ceremony_boost'
-      user: '@usuario_tiktok',
-      giftName: 'Buquê Dourado',
-      giftValue: 25,
-    },
-  },
-  '*',
-);
-```
+- **`window.MinhaLiveGames.onEvent(callback)`**: recebe presentes (`gift`/`presente`), curtidas (`like`/`curtida`), comentários (`comment`/`comentario`), seguidores (`follow`) e compartilhamentos (`share`), convertendo-os para o formato interno `LiveEventInput`.
+- **`window.MinhaLiveGames.onCommand(callback)`**: processa comandos (`!noiva`/`coroar`, `!arrocha`/`dancar`, `!casar`/`cerimonia`, `!entrar` ou comandos personalizados).
+- **`window.MinhaLiveGames.onControl(callback)`**: controla o ciclo do jogo com `iniciar`/`start`/`resume`, `pausar`/`pause` e `reiniciar`/`restart`/`reset`.
+- **`window.MinhaLiveGames.emitScore(score, meta)`**: envia a pontuação atualizada (`totalScore`) e metadados da rodada para a plataforma em tempo real.
 
-### Opção B — Ponte Global JavaScript (`window.MinhaLiveGames`)
-```js
-window.MinhaLiveGames.emitEvent({
-  type: 'comment',
-  user: '@maria_live',
-  comment: 'ARROCHAAA CASAL!',
-});
-
-// Consultar estado atual da partida:
-const estado = window.MinhaLiveGames.getState();
-```
-
-### Opção C — WebSocket Externo (`?ws=...` ou `VITE_LIVE_WS_URL`)
-Abra o jogo passando o endpoint WebSocket na URL:
-```text
-https://seu-jogo.vercel.app/?ws=wss://seu-servidor-live.com/ws
-```
-Cada mensagem JSON enviada pelo WebSocket deve seguir:
-```json
-{
-  "type": "live:event",
-  "payload": {
-    "type": "gift",
-    "user": "@usuario_tiktok",
-    "giftName": "Rosa",
-    "giftValue": 25,
-    "comment": "Arrocha casal!"
-  }
-}
-```
-
-### Opção D — Servidor Node Incluso (`server.ts`)
-Ao hospedar o projeto em um servidor Node.js (`npm run build && npm run start`), o servidor expõe:
-- **WebSocket:** `ws://<host>:3000/ws/live`
-- **Webhook HTTP:** `POST http://<host>:3000/api/live/event`
-- **Status:** `GET http://<host>:3000/api/live/status`
+Também há suporte complementar via `window.postMessage` (`minha-live-games:event`, `minha-live-games:command`, `minha-live-games:control`), WebSocket externo (`?ws=` / `VITE_LIVE_WS_URL`) e servidor Node opcional (`server.ts`).
 
 ---
 
