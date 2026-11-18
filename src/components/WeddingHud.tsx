@@ -117,15 +117,19 @@ export const WeddingHud: React.FC<WeddingHudProps> = ({
             style={{ background: 'rgba(34, 6, 15, 0.86)' }}
           >
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="font-bold text-[#ffe394]">{selectedRoach.handle}</span>
-              <span aria-hidden="true" className="text-white/40">·</span>
-              <span className="text-[#ffd6e0]">
+              <span className="font-bold text-[#ffe394]">
                 {selectedRoach.role === 'groom'
                   ? 'Noivo'
                   : selectedRoach.role === 'bride'
                     ? 'Noiva'
-                    : 'Convidado'}
+                    : selectedRoach.handle}
               </span>
+              {selectedRoach.role !== 'groom' && selectedRoach.role !== 'bride' && (
+                <>
+                  <span aria-hidden="true" className="text-white/40">·</span>
+                  <span className="text-[#ffd6e0]">Convidado</span>
+                </>
+              )}
               <span aria-hidden="true" className="text-white/40">·</span>
               <span className="font-mono-tabular text-white/90">
                 Afinidade {Math.round(selectedRoach.affinity)}%
@@ -155,18 +159,13 @@ export const WeddingHud: React.FC<WeddingHudProps> = ({
             ))}
           </div>
 
-          {/* Couple Compact Card */}
+          {/* Couple Compact Card (no names) */}
           <div
+            data-testid="couple-altar-card"
             className="rounded-lg px-2.5 py-1.5 border border-[#f2bd49]/30 text-right shrink-0"
             style={{ background: 'rgba(34, 6, 15, 0.82)' }}
           >
             <div className="text-[10px] text-[#f2bd49] font-semibold">Casal no Altar</div>
-            <div className="text-[11px] font-bold text-white truncate max-w-[110px]">
-              {groom?.handle ?? '@noivo'}
-            </div>
-            <div className="text-[11px] font-bold text-[#fda4af] truncate max-w-[110px]">
-              {bride?.handle ?? '@noiva'}
-            </div>
           </div>
         </div>
       </div>

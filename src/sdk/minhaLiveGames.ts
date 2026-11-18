@@ -71,7 +71,8 @@ function extractUser(src: Record<string, unknown>): string {
     userObj?.name,
   );
 
-  return rawName || '@convidado';
+  const cleaned = rawName.replace(/^@+/, '').trim();
+  return cleaned || 'Convidado';
 }
 
 function mergePayload(raw: unknown): Record<string, unknown> | null {

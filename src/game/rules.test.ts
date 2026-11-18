@@ -62,11 +62,11 @@ test('crownNewBride promotes a user and updates brideAnnouncement banner', () =>
   assert.notEqual(state.brideId, prevBrideId);
   const newBride = state.roaches.find((r) => r.id === state.brideId);
   const oldBride = state.roaches.find((r) => r.id === prevBrideId);
-  assert.equal(newBride?.handle, '@nova_noiva_vip');
+  assert.equal(newBride?.handle, 'nova_noiva_vip');
   assert.equal(newBride?.role, 'bride');
   assert.equal(newBride?.accessory, 'veil');
   assert.equal(oldBride?.role, 'guest_f');
-  assert.equal(state.brideAnnouncement?.handle, '@nova_noiva_vip');
+  assert.equal(state.brideAnnouncement?.handle, 'nova_noiva_vip');
 });
 
 test('applyLiveEventToState handles gift, like, and comment events', () => {
@@ -81,7 +81,7 @@ test('applyLiveEventToState handles gift, like, and comment events', () => {
   });
 
   assert.equal(state.roaches.length, initialCount + 1);
-  const spawned = state.roaches.find((r) => r.handle === '@visitante_top');
+  const spawned = state.roaches.find((r) => r.handle === 'visitante_top');
   assert.equal(spawned?.speechText, 'ARROCHAAA');
 
   const prevProgress = state.ceremonyProgress;
@@ -102,7 +102,7 @@ test('applyLiveEventToState handles gift, like, and comment events', () => {
     source: 'websocket',
   });
   assert.equal(state.giftsCount, 1);
-  assert.equal(state.roaches.find((r) => r.id === state.brideId)?.handle, '@visitante_top');
+  assert.equal(state.roaches.find((r) => r.id === state.brideId)?.handle, 'visitante_top');
 });
 
 test('stepWeddingSimulation advances phases to ceremony, celebration, and next round with automatic camera', () => {

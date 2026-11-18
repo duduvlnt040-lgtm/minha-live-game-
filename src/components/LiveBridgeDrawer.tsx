@@ -15,7 +15,7 @@ export const LiveBridgeDrawer: React.FC<LiveBridgeDrawerProps> = ({
   bridgeStatus,
   onTriggerTestEvent,
 }) => {
-  const [testUser, setTestUser] = useState('@convidado_live');
+  const [testUser, setTestUser] = useState('convidado_live');
   const [testComment, setTestComment] = useState('ARROCHAAA CASAL!');
   const [sending, setSending] = useState(false);
 
@@ -213,7 +213,7 @@ export const LiveBridgeDrawer: React.FC<LiveBridgeDrawerProps> = ({
           <pre className="overflow-x-auto text-[10px] text-[#ffd6e0] font-mono-tabular leading-relaxed">
 {`{
   "type": "gift" | "like" | "comment" | "follow",
-  "user": "@usuario_tiktok",
+  "user": "usuario_tiktok",
   "giftName": "Rosa",
   "giftValue": 25,
   "comment": "Arrocha casal!"

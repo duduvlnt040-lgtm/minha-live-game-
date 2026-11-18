@@ -36,7 +36,7 @@ test('normalizeSdkEvent converts gifts, likes, and comments to LiveEventInput', 
   });
   assert.deepEqual(like, {
     type: 'like',
-    user: '@joao_live',
+    user: 'joao_live',
     count: 18,
     avatarUrl: undefined,
     source: 'websocket',
@@ -123,7 +123,7 @@ test('bindMinhaLiveGamesSdk preserves window.MinhaLiveGames and wires callbacks 
   captured.ctrlCb?.({ action: 'iniciar' });
   captured.ctrlCb?.({ control: 'reiniciar' });
 
-  assert.deepEqual(receivedEvents, ['gift:@vip', 'like:@dancarino']);
+  assert.deepEqual(receivedEvents, ['gift:vip', 'like:dancarino']);
   assert.deepEqual(receivedControls, ['pause', 'start', 'restart']);
 
   const state = createInitialGameState(10);
