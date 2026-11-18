@@ -1,0 +1,6 @@
+{
+  "name": "Casamento da Barata 3D",
+  "description": "Jogo 3D interativo de festa de casamento das baratas com câmeras cinematográficas, cerimônia dinâmica e estrutura WebSocket para eventos ao vivo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
